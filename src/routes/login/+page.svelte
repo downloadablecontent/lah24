@@ -2,12 +2,12 @@
   import { goto } from "$app/navigation";
 
   import { credentials_store } from "$lib/storage";
-  import { MatrixClient } from "$lib/matrix";
+  import { Client } from "$lib/matrix";
 
   let user_id: string, password: string;
 
   async function login() {
-    const access_token = await MatrixClient.get_access_token(user_id, password);
+    const access_token = await Client.get_access_token(user_id, password);
     //console.log(access_token)
     if (access_token) {
       credentials_store.set({
@@ -28,6 +28,5 @@
   <br>
   <label for="password">Password:</label>
   <input type="password" id="password" placeholder="correct horse battery staple" bind:value={password}/>
-  <br>
   <input value="Login" type="submit"/>
 </form>
