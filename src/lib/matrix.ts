@@ -10,7 +10,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export class Client {
   client: sdk.MatrixClient;
   rooms: string[] = [];
-  c_room: string = '!fwFslMSZEAahxTqOXJ:matrix.org';
+  c_room: string = "";
 
   constructor (user_id: string, access_token: string, device_id: string) {
     this.client = sdk.createClient({
@@ -25,7 +25,7 @@ export class Client {
     this.sync();
   }
 
-  async sync () {
+  async sync() {
     await this.client.initCrypto()
     await this.client.startClient()
   
@@ -39,7 +39,44 @@ export class Client {
     });
   }
 
-  async init () {
+  /*
+  async verify_self() {
+    console.log("DEVICES", await this.client.getDevices());
+    const client_crypto = this.client.getCrypto()!;
+
+    const verification_request = await client_crypto.requestOwnUserVerification();
+
+    const verifier = await verification_request.startVerification("m.sas.v1");
+
+    let a = await verifier.verify();
+
+    console.log("AAA", a)
+
+    console.log(verification_request);
+
+    setInterval(() => {
+      console.log(verification_request.phase)
+    }, 1000);
+
+    //
+
+    verifier.once(sdk.Crypto.VerifierEvent.ShowSas, (sas) => {
+      console.log("SAS", sas)
+      sas.confirm() //sas.mismatch
+      //
+    });
+
+    //
+  }*/
+
+  async init() {
+    const rooms = this.client.getRooms();
+
+    console.log("ROOMS", rooms);
+
+    //FIX LATER TODO
+    this.c_room = rooms[0].roomId;
+
     await this.join_room(this.c_room)
       .then(room => {
         console.log('joined room: ', this.c_room, room);
@@ -47,9 +84,49 @@ export class Client {
 
         console.log('rooms: ', rooms);
       })
-    await sleep(5000);
+    //await sleep(5000);
     
     console.log('room keys: ', await this.client.exportRoomKeys());
+
+    this.client.on(sdk.CryptoEvent.VerificationRequestReceived, async (verification_request: sdk.Crypto.VerificationRequest) => {
+      await verification_request.accept();
+      
+      //const verifier = await verification_request.startVerification("m.sas.v1");
+      
+      console.log(verification_request.methods)
+
+      const verifier = await verification_request.beginKeyVerification(
+        verification_request.methods[0],
+        {
+          deviceId: verification_request.otherDeviceId,
+          userId: verification_request.otherUserId,
+        }
+      );
+
+      console.log('ACCEPTED VERIFY REQUEST')
+
+      verifier.verify();
+    
+      /*verifier.once(sdk.Crypto.VerifierEvent.ShowSas, async (sas) => {
+        console.log("SAS", sas.sas)
+        sas.confirm();
+        //
+      });*/
+
+      //simulate a thingy
+      setTimeout(() => {
+        let ec = verifier.getShowSasCallbacks()
+        let emoji = ec?.sas.emoji?.map((e) => e[0]).join("");
+        let resp = prompt(`Do you see this on your other session (Y/N)? ${emoji}`);
+        if (resp?.toLowerCase() === "y") {
+          ec?.confirm();
+        } else {
+          ec?.mismatch();
+        }
+      }, 5000);
+
+      //await verifier.verify();
+    });
 
     // Ignore device verification
     this.client.setGlobalErrorOnUnknownDevices(false);
@@ -70,7 +147,7 @@ export class Client {
       console.log('MatrixEventEvent.Decrypted: ', event, event.getContent());
     });
 
-
+    //
   }
 
   /*
@@ -130,18 +207,19 @@ export class Client {
     return creds;
   }
 
-  bind_message_stream (roomId: string, stream: string[]) {
+  bind_message_stream(roomId: string, stream: string[]) {
+    //
   }
 
-  async join_room (roomId: string) {
+  async join_room(roomId: string) {
     await this.client.joinRoom(roomId)
       .then (res => console.log('joined room: ', res))
       .catch(err => console.log('error on join room: ', err));
   }
 
-  async send_message (body: string) {
-    await this.client.sendTextMessage(this.c_room, body)
-      .then (res => console.log('sent message: ', res))
+  async send_message(body: string) {
+    return await this.client.sendTextMessage(this.c_room, body)
+      //.then (res => console.log('sent message: ', res))
       .catch(err => console.log('error on send message: ', err));
   }
 }

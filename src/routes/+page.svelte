@@ -4,23 +4,27 @@
 
   const client: Client | undefined = Client.from_local_storage();
 
-  if (client) {
-    console.log('hello: ', client);
-  } else {
-    goto("/login");
-  }
-
-  let input = "";
+  let input: string = "";
   let messages = [];
 
-  // Bind
-  client.bind_message_stream('#lah24:matrix.org', messages);
+  if (typeof client === "undefined") {
+    goto("/login");
+  } else {
+    console.log('hello: ', client);
 
-  const send = () => { 
-    console.log('sending: ', input);
-    client.send_message(input);
+    // Bind
+    client.bind_message_stream('#lah24:matrix.org', messages);
   }
 
+  const send = async () => { 
+    console.log('sending: ', input);
+    if (client) {
+      let resp = await client.send_message(input);
+      if (resp) {
+        input = "";
+      }
+    }
+  }
 </script>
 
 <div>Texts: </div>
