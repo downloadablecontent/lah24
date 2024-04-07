@@ -5,86 +5,132 @@ import * as sdk from "matrix-js-sdk";
 import { get } from "svelte/store";
 import { credentials_store } from "$lib/storage";
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export class Client {
   client: sdk.MatrixClient;
   rooms: string[] = [];
   c_room: string = '!fwFslMSZEAahxTqOXJ:matrix.org';
 
-  constructor (user_id: string, access_token: string) {
+  constructor (user_id: string, access_token: string, device_id: string) {
     this.client = sdk.createClient({
       baseUrl: "https://matrix.org",
-      deviceId: '1234',
       accessToken: access_token,
+      deviceId: device_id,
       userId: user_id,
       cryptoStore: new sdk.MemoryCryptoStore,
-    });
+    })
+    console.log('creds: ', this.client.credentials);
 
-    this.init();
+    this.sync();
   }
 
-  async init () {
+  async sync () {
     await this.client.initCrypto()
     await this.client.startClient()
   
     this.client.once(sdk.ClientEvent.Sync, (state: string) => {
       console.log("post-login sync state: ", state);
 
-      // Ignore device verification
-      this.client.setGlobalErrorOnUnknownDevices(false);
+      if (state !== 'PREPARED') 
+        return console.error('sync failed with: ', state);
 
-      this.client.on(sdk.RoomEvent.Timeline, function (event, room, toStartOfTimeline) {
-
-        if (event.getType() !== "m.room.message") 
-          return;
-
-        const message = event.event.content;
-        console.log('message: ', message);
-      });
-
-      this.join_room(this.c_room)
-        .then(room => {
-          console.log('joined room: ', this.c_room, room);
-          const rooms = this.client.getRooms();
-
-          console.log('rooms: ', rooms);
-        })
+      this.init();
     });
   }
+
+  async init () {
+    await this.join_room(this.c_room)
+      .then(room => {
+        console.log('joined room: ', this.c_room, room);
+        const rooms = this.client.getRooms();
+
+        console.log('rooms: ', rooms);
+      })
+    await sleep(5000);
+    
+    console.log('room keys: ', await this.client.exportRoomKeys());
+
+    // Ignore device verification
+    this.client.setGlobalErrorOnUnknownDevices(false);
+    //console.log('crypto: ', this.client.crypto);
+
+    this.client.on(sdk.RoomEvent.Timeline, async (event, room, toStartOfTimeline) => {
+
+      console.log('event.getType(): ', event.getType());
+      if (event.getType() !== "m.room.encrypted") 
+        return;
+
+      const dec = await this.client.decryptEventIfNeeded(event, { emit: true });
+      const message = event.event.content;
+      console.log('message: ', message,  dec);
+    });
+
+    this.client.on(sdk.MatrixEventEvent.Decrypted, async function (event){
+      console.log('MatrixEventEvent.Decrypted: ', event, event.getContent());
+    });
+
+
+  }
+
+  /*
+  async autoVerify (room_id: string) {
+    let room = this.client.getRoom(room_id);
+    if (!room) return;
+
+    let members = (await room.getEncryptionTargetMembers()).map(
+      (x) => x['userId']
+    );
+    let memberkeys = await this.client.downloadKeys(members);
+    await this.client.claimOneTimeKeys({
+      one_time_keys: memberkeys,
+    });
+    const e2eMembers = await room.getEncryptionTargetMembers();
+    for (const member of e2eMembers) {
+      const devices = this.client.getStoredDevicesForUser(member.userId);
+      for (const device of devices) {
+        if (device.isUnverified()) {
+          await this.client.setDeviceKnown(member.userId, member.deviceId, true);
+          await this.client.setDeviceVerified(member.userId, member.deviceId, true);
+        }
+      }
+    }
+  };
+  */
 
   static from_local_storage(): Client | undefined {
-    const { user_id, access_token } = get(credentials_store);
+    const { user_id, access_token, device_id} = get(credentials_store);
 
-    if (user_id && access_token) {
-      return new Client(user_id, access_token);
+    if (user_id && access_token && device_id) {
+      return new Client(user_id, access_token, device_id);
     } else {
       return undefined;
     }
   }
 
-  static async get_access_token(user_id: string, password: string): Promise<string | undefined> {
+  static async get_creds(user_id: string, password: string): Promise<string | undefined> {
+    const body = {
+      type: "m.login.password",
+      identifier: {
+        type: "m.id.user",
+        user: user_id,
+      },
+      password: password,
+      initial_device_display_name: "Starkchat Client",
+    }
     const resp = await fetch("https://matrix.org/_matrix/client/v3/login", {
       method: "POST",
-      body: JSON.stringify({
-        type: "m.login.password",
-        identifier: {
-          type: "m.id.user",
-          user: user_id,
-        },
-        password: password,
-        initial_device_display_name: "Starkchat Client",
-      }),
+      body: JSON.stringify(body),
     });
-    if (resp.status === 200) {
-      const resp_json = await resp.json();
-      return resp_json.access_token;
-    } else {
+    if (resp.status !== 200)
       return undefined;
-    }
+
+    const creds = await resp.json();
+    console.log('login resp, creds: ', creds);
+    return creds;
   }
 
   bind_message_stream (roomId: string, stream: string[]) {
-    
   }
 
   async join_room (roomId: string) {

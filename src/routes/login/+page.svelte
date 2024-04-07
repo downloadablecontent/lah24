@@ -7,13 +7,10 @@
   let user_id: string, password: string;
 
   async function login() {
-    const access_token = await Client.get_access_token(user_id, password);
-    //console.log(access_token)
-    if (access_token) {
-      credentials_store.set({
-        access_token,
-        user_id,
-      });
+    const creds = await Client.get_creds(user_id, password);
+
+    if (creds) {
+      credentials_store.set(creds);
       goto("/");
     } else {
       //error message
